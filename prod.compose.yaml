@@ -1,0 +1,92 @@
+version: "3.9"
+services:
+  nginx:
+    build:
+      context: ./docker/nginx/
+      dockerfile: ./nginx.dockerfile
+    env_file: prod.env
+    ports:
+      - 80:80
+    networks:
+      - front-tier
+    volumes:
+      - staticfiles:/app/static
+    depends_on:
+      - rss-reader
+  
+  rss-reader:
+    build:
+      context: ./
+      dockerfile: ./docker/rssreader/rssreader.dockerfile
+    image: rss-reader
+    env_file: prod.env
+    networks:
+      - front-tier
+      - back-tier
+    volumes:
+      - staticfiles:/app/static
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+
+  celery-worker:
+    image: rss-reader
+    pull_policy: never
+    command: celery -A rssreader worker -l INFO
+    env_file: prod.env
+    networks:
+      - back-tier
+    depends_on:
+      - rss-reader
+      - redis
+
+  celery-beat:
+    image: rss-reader
+    pull_policy: never
+    command: celery -A rssreader beat -l INFO
+    env_file: prod.env
+    networks:
+      - back-tier
+    depends_on:
+      - rss-reader
+      - redis
+  
+  redis:
+    image: redis:7.0.11-bullseye
+    env_file: prod.env
+    networks:
+      - back-tier
+    volumes:
+      - redisdata:/usr/local/etc/redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+  db:
+    image: postgres:15.3-bullseye
+    env_file: prod.env
+    networks:
+      - back-tier
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "rssreader"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+
+volumes:
+  pgdata:
+  redisdata:
+  staticfiles:
+networks:
+  front-tier:
+  back-tier:

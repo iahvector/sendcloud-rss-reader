@@ -1,0 +1,1 @@
+from .feeds_service_tests import FeedsServiceTest
